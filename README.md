@@ -1,4 +1,4 @@
-# Dummy Test Site (Laravel)
+﻿# Dummy Test Site (Laravel)
 
 A minimal Laravel placeholder app used to verify that a VPS / web server / PHP
 stack is configured correctly. No external services or APIs required.
@@ -135,7 +135,9 @@ older default PHP and Laravel 12 will fail with a syntax/version error.
 ### 2. Upload the code
 
 Two options — both put the app in your account's home directory, e.g.
-`/home/myuser/test-site`.
+`/home/myuser/test-site`. **Run these as your Webuzo account user, not as
+`root`** — if you only have `root` and are unsure how, jump to
+[step 2.5](#25-only-have-root-how-to-run-composer).
 
 **Option A — Webuzo web Terminal (no SSH needed)**
 
@@ -157,6 +159,105 @@ Upload a zip via **Server Utilities → File Manager** (or use SFTP), extract to
 > `/usr/local/apps/php82/bin/php /usr/local/bin/composer install --no-dev -o`
 > (adjust `php82` to the version you enabled in MultiPHP Manager).
 
+### 2.5 Only have root? How to run Composer
+
+You ran `composer install`, and something told you **not to run Composer as
+root**. You only have a root login, so it feels like a dead end. It is not.
+
+**The short answer: you are logged into the wrong panel, not missing a user.**
+
+Webuzo gives you **two separate logins** on the same server:
+
+| | Root / Admin Panel | Enduser Panel |
+|---|---|---|
+| URL | `http://101.50.1.15:2002/` | `http://101.50.1.15:2002/enduser/` |
+| Log in as | `root` | your **hosting account** username |
+| For | server-wide settings | managing **one** site |
+
+"Don't run Composer as root" does **not** mean you need `sudo` or a trick to
+drop privileges — it means *do the app work in the **Enduser Panel***, where you
+already are a normal, unprivileged user. Your root login is correct for
+administering the server; it is simply the wrong place to build the app.
+
+#### Step-by-step fix
+
+**1. Find (or set) your hosting account's password.** In the **Admin Panel**:
+**Endusers → List Users** → **Edit** next to your account → set a password →
+save. Note the **username** (e.g. `myuser`).
+
+> This is *not* weakening root or opening a hole. You are setting a password for
+> the site's own account — which is the account you are supposed to use here.
+
+**2. Log out and log into the Enduser Panel** at
+`http://101.50.1.15:2002/enduser/` using that username and new password.
+
+**3. Open Enduser Panel → Server Utilities → Terminal**, and **verify who you
+are before doing anything else**:
+
+```bash
+whoami          # MUST print your account, e.g. myuser  → NOT "root"
+id              # MUST NOT contain uid=0(root)
+```
+
+If `whoami` prints `root`, you are still in the Admin Panel. Go back to step 2.
+
+**4. Now run the commands from step 2 normally — no `sudo`, ever:**
+
+```bash
+cd /home/myuser/test-site
+composer install --no-dev --optimize-autoloader
+```
+
+Composer needs no special privileges. It only writes into
+`/home/myuser/test-site`, which your account already owns, so file ownership
+comes out correct automatically.
+
+#### If you can only reach the server over SSH as `root`
+
+Don't build the app as root — **switch to the site's user** for app commands:
+
+```bash
+whoami              # root
+su - myuser         # become the hosting account; no password needed as root
+whoami              # myuser  ← now correct
+cd ~/test-site
+composer install --no-dev --optimize-autoloader
+php artisan key:generate
+php artisan migrate --force
+exit                # back to root when finished
+whoami              # root
+```
+
+Rule of thumb: run **`composer` and `php artisan` as `myuser`**; keep **`root`**
+for server administration (restarting Apache/MySQL, firewall rules, system
+packages).
+
+#### What if no hosting account exists at all?
+
+Then this is not a Webuzo *hosting* setup and you should create the account
+rather than run the app as root — **Admin Panel → Endusers → Add User**, set a
+username, password and domain. Use that account for everything from step 2
+onwards.
+
+#### Why `sudo composer` really does break things
+
+This is not just style advice:
+
+1. `sudo composer install` creates `vendor/`, and later `storage/`, owned by
+   **root** — but Apache serves your site as **`myuser`**.
+2. Apache then **cannot write** to `storage/logs/` or `storage/framework/`,
+   which gives you **HTTP 500 on every single page**, with a misleading
+   "unwritable"/"permission denied" message that is hard to trace.
+3. Composer plugins **execute arbitrary code**. Run as root, one compromised or
+   malicious package gets **full control of your VPS** — beyond just this site.
+
+If you already ran `sudo composer install`, the recovery command is in
+[step 4](#4-permissions):
+
+```bash
+chown -R myuser:myuser /home/myuser/test-site
+```
+
 ### 3. Create the database and configure
 
 **First, create the database in Webuzo.** Go to Enduser Panel →
@@ -168,8 +269,9 @@ Create a database user at the same time and note the password.
 *(If you prefer SQL, the panel runs this for you — but the raw equivalent is
 shown in [Appendix: raw SQL](#appendix-raw-sql) at the end of this file.)*
 
-Then configure the app. Using the Terminal (or SSH) as your Webuzo user —
-**not** with `sudo`:
+Then configure the app. Run these as your Webuzo account user — **not** as
+`root`. If that sentence is the thing blocking you, read
+[step 2.5](#25-only-have-root-how-to-run-composer) first:
 
 ```bash
 cd /home/myuser/test-site
@@ -217,11 +319,17 @@ chmod -R 755 storage bootstrap/cache
 ```
 
 Ownership is normally already correct because you uploaded as that user. If you
-used `sudo` or root anywhere, fix it (use your real username):
+ran Composer as `root` (or `sudo`) anywhere — see
+[step 2.5](#25-only-have-root-how-to-run-composer) for why that causes
+500 errors — fix it now (use your real username):
 
 ```bash
 chown -R myuser:myuser /home/myuser/test-site
 ```
+
+> If you have only a `root` SSH login, run app commands as the site's user
+> instead of building as root: `su - myuser`, do the work, then `exit`. Full
+> walkthrough in [step 2.5](#25-only-have-root-how-to-run-composer).
 
 Do **not** run `chmod -R 777` — it is unnecessary and insecure.
 
@@ -426,6 +534,9 @@ diagnostic:
 | `ping 101.50.1.15` works, but HTTP times out | Firewall blocking port 80. Open 80/443 in your **cloud security group** *and* the server firewall. See step 0. |
 | Everything 404s except the homepage | `.htaccess` rewrite not applied — `AllowOverride All` is not in effect for the vhost, so `mod_rewrite` rules in `public/.htaccess` are ignored. |
 | `could not find driver` | `pdo_mysql` not enabled. **Configuration → PHP Extensions**, enable `pdo_mysql` (and `mysqli`), apply. |
+| You only have `root`, and are told not to use `sudo` | You are in the wrong panel. Log into the **Enduser Panel** (`/enduser/`) with the hosting account username — full walkthrough in [step 2.5](#25-only-have-root-how-to-run-composer). |
+| 500s after a `sudo composer install` | `vendor/`/`storage/` now owned by root, so Apache cannot write. Fix: `chown -R myuser:myuser /home/myuser/test-site`. See [step 2.5](#25-only-have-root-how-to-run-composer). |
+| Terminal shows `whoami` = `root` when following the guide | You opened the Admin Panel terminal. Switch to the Enduser Panel so files get the right owner — see [step 2.5](#25-only-have-root-how-to-run-composer). |
 | `Access denied for user '...'@'localhost'` | Wrong `DB_USERNAME`/`DB_PASSWORD` in `.env`, or the user was not granted rights on **this** database. Re-check in **Database Management**; remember the `myuser_` prefix on both the database and user name. |
 | `Unknown database 'test_site'` | The database does not exist, or you used the un-prefixed name. On Webuzo the real name is `myuser_test_site` — set `DB_DATABASE` to that. |
 | `Connection refused` / `SQLSTATE[HY000] [2002]` | MySQL/MariaDB is not running, or `DB_HOST` is wrong. On a Webuzo box the database is almost always `127.0.0.1`; do **not** use `localhost` if the socket path differs. |
