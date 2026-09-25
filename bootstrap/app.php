@@ -3,12 +3,18 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function (): void {
+            // Stateless health endpoint: no session, no cookies, so it stays
+            // reachable even if the database backing sessions is broken.
+            Route::middleware([])->group(__DIR__.'/../routes/health.php');
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         //

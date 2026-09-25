@@ -27,14 +27,5 @@ Route::get('/about', function () {
     return view('about', ['title' => 'About']);
 })->name('about');
 
-Route::get('/health', function () {
-    return response()->json([
-        'status'  => 'ok',
-        'app'     => config('app.name'),
-        'env'     => app()->environment(),
-        'php'     => PHP_VERSION,
-        'laravel' => app()->version(),
-        'host'    => gethostname(),
-        'time'    => now()->toIso8601String(),
-    ]);
-})->name('health');
+// NOTE: /health lives in routes/health.php so it runs without session
+// middleware and keeps working when the database is down.
